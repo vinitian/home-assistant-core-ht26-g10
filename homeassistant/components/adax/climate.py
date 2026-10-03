@@ -22,7 +22,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import AdaxConfigEntry
-from .const import CONNECTION_TYPE, DOMAIN, ICON_ON, LOCAL
+from .const import CONNECTION_TYPE, DOMAIN, ICON_OFF, ICON_ON, LOCAL
 from .coordinator import AdaxCloudCoordinator, AdaxLocalCoordinator
 
 
@@ -136,7 +136,7 @@ class AdaxDevice(CoordinatorEntity[AdaxCloudCoordinator], ClimateEntity):
             self._attr_icon = ICON_ON
         else:
             self._attr_hvac_mode = HVACMode.OFF
-            self._attr_icon = "mdi:radiator-off"
+            self._attr_icon = ICON_OFF
 
 
 class LocalAdaxDevice(CoordinatorEntity[AdaxLocalCoordinator], ClimateEntity):
@@ -144,7 +144,7 @@ class LocalAdaxDevice(CoordinatorEntity[AdaxLocalCoordinator], ClimateEntity):
 
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
     _attr_hvac_mode = HVACMode.OFF
-    _attr_icon = "mdi:radiator-off"
+    _attr_icon = ICON_OFF
     _attr_max_temp = 35
     _attr_min_temp = 5
     _attr_supported_features = (
@@ -175,7 +175,7 @@ class LocalAdaxDevice(CoordinatorEntity[AdaxLocalCoordinator], ClimateEntity):
             self._attr_icon = ICON_ON
         elif hvac_mode == HVACMode.OFF:
             await self._adax_data_handler.set_target_temperature(0)
-            self._attr_icon = "mdi:radiator-off"
+            self._attr_icon = ICON_OFF
         else:
             # Ignore unsupported HVAC modes to avoid desynchronizing entity state
             # from the physical device.
@@ -208,7 +208,7 @@ class LocalAdaxDevice(CoordinatorEntity[AdaxLocalCoordinator], ClimateEntity):
             self._attr_current_temperature = data["current_temperature"]
             if (target_temp := data["target_temperature"]) == 0:
                 self._attr_hvac_mode = HVACMode.OFF
-                self._attr_icon = "mdi:radiator-off"
+                self._attr_icon = ICON_OFF
                 if self._attr_target_temperature is None:
                     self._attr_target_temperature = self._attr_min_temp
             else:
