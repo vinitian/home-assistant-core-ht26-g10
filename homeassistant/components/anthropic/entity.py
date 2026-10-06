@@ -226,6 +226,158 @@ class ContentDetails:
             detail for detail in self.citation_details if detail.citations
         ]
 
+def _tool_result_block(
+    content: conversation.ToolResultContent,
+) -> tuple[ContentBlockParam, bool]:
+    """Build the API block for a tool result.
+
+    Returns the block and whether it is an external (server-side) tool.
+    """
+    external_tool = True
+    if content.tool_name == "web_search":
+        tool_result_block: ContentBlockParam = {
+            "type": "web_search_tool_result",
+            "tool_use_id": content.tool_call_id,
+            "content": cast(
+                WebSearchToolResultBlockParamContentParam,
+                content.tool_result["content"]
+                if "content" in content.tool_result
+                else {
+                    "type": "web_search_tool_result_error",
+                    "error_code": content.tool_result.get("error_code", "unavailable"),
+                },
+            ),
+        }
+    elif content.tool_name == "code_execution":
+        external_tool = True
+        if content.tool_name == "web_search":
+            tool_result_block: ContentBlockParam = {
+                "type": "web_search_tool_result",
+                "tool_use_id": content.tool_call_id,
+                "content": cast(
+                    WebSearchToolResultBlockParamContentParam,
+                    content.tool_result["content"]
+                    if "content" in content.tool_result
+                    else {
+                        "type": "web_search_tool_result_error",
+                        "error_code": content.tool_result.get(
+                            "error_code", "unavailable"
+                        ),
+                    },
+                ),
+            }
+        elif content.tool_name == "code_execution":
+            tool_result_block = {
+                "type": "code_execution_tool_result",
+                "tool_use_id": content.tool_call_id,
+                "content": cast(
+                    CodeExecutionToolResultBlockParamContentParam,
+                    content.tool_result,
+                ),
+            }
+        elif content.tool_name == "bash_code_execution":
+            tool_result_block = {
+                "type": "bash_code_execution_tool_result",
+                "tool_use_id": content.tool_call_id,
+                "content": cast(
+                    BashCodeExecutionToolResultBlockParamContentParam,
+                    content.tool_result,
+                ),
+            }
+        elif content.tool_name == "text_editor_code_execution":
+            tool_result_block = {
+                "type": "text_editor_code_execution_tool_result",
+                "tool_use_id": content.tool_call_id,
+                "content": cast(
+                    TextEditorCodeExecutionToolResultBlockParamContentParam,
+                    content.tool_result,
+                ),
+            }
+        elif content.tool_name == "tool_search":
+            tool_result_block = {
+                "type": "tool_search_tool_result",
+                "tool_use_id": content.tool_call_id,
+                "content": cast(
+                    ToolSearchToolResultBlockParamContentParam,
+                    content.tool_result,
+                ),
+            }
+        elif content.tool_name == "web_fetch":
+            tool_result_block = {
+                "type": "web_fetch_tool_result",
+                "tool_use_id": content.tool_call_id,
+                "content": cast(
+                    WebFetchToolResultBlockParamContentParam,
+                    content.tool_result,
+                ),
+            }
+        else:
+            tool_result_block = {
+                "type": "tool_result",
+                "tool_use_id": content.tool_call_id,
+                "content": json_dumps(content.tool_result),
+            }
+            external_tool = False
+    else:
+        tool_result_block = {
+            "type": "tool_result",
+            "tool_use_id": content.tool_call_id,
+            "content": json_dumps(content.tool_result),
+        }
+        external_tool = False
+    return tool_result_block, external_tool
+
+def _text_blocks(content: conversation.AssistantContent) -> list[TextBlockParam]:
+    """Split the text into blocks, attaching citations where they exist."""
+    blocks: list[TextBlockParam] = []
+    current_index = 0
+    for detail in (
+        content.native.citation_details
+        if isinstance(content.native, ContentDetails)
+        else [CitationDetails(length=len(content.content))]
+    ):
+        if detail.index > current_index:
+            # Text without citations
+            blocks.append(
+                TextBlockParam(
+                    type="text", text=content.content[current_index : detail.index]
+                )
+            )
+        text = content.content[detail.index : detail.index + detail.length]
+        blocks.append(
+            TextBlockParam(type="text", text=text, citations=detail.citations)
+            if detail.citations
+            else TextBlockParam(type="text", text=text)
+        )
+        current_index = detail.index + detail.length
+    if current_index < len(content.content):
+        blocks.append(TextBlockParam(type="text", text=content.content[current_index:]))
+    return blocks
+
+_EXTERNAL_TOOLS = (
+    "web_fetch",
+    "web_search",
+    "code_execution",
+    "bash_code_execution",
+    "text_editor_code_execution",
+    "tool_search_tool_bm25",
+)
+
+def _tool_call_block(tool_call) -> ContentBlockParam:
+    """Server-side tools use a different block type than regular tools."""
+    if tool_call.external and tool_call.tool_name in _EXTERNAL_TOOLS:
+        return ServerToolUseBlockParam(
+            type="server_tool_use",
+            id=tool_call.id,
+            name=cast(Any, tool_call.tool_name),
+            input=tool_call.tool_args,
+        )
+    return ToolUseBlockParam(
+        type="tool_use",
+        id=tool_call.id,
+        name=tool_call.tool_name,
+        input=tool_call.tool_args,
+    )
 
 def _convert_content(  # noqa: C901
     chat_content: Iterable[conversation.Content],
@@ -237,75 +389,7 @@ def _convert_content(  # noqa: C901
 
     for index, content in enumerate(contents):
         if isinstance(content, conversation.ToolResultContent):
-            external_tool = True
-            if content.tool_name == "web_search":
-                tool_result_block: ContentBlockParam = {
-                    "type": "web_search_tool_result",
-                    "tool_use_id": content.tool_call_id,
-                    "content": cast(
-                        WebSearchToolResultBlockParamContentParam,
-                        content.tool_result["content"]
-                        if "content" in content.tool_result
-                        else {
-                            "type": "web_search_tool_result_error",
-                            "error_code": content.tool_result.get(
-                                "error_code", "unavailable"
-                            ),
-                        },
-                    ),
-                }
-            elif content.tool_name == "code_execution":
-                tool_result_block = {
-                    "type": "code_execution_tool_result",
-                    "tool_use_id": content.tool_call_id,
-                    "content": cast(
-                        CodeExecutionToolResultBlockParamContentParam,
-                        content.tool_result,
-                    ),
-                }
-            elif content.tool_name == "bash_code_execution":
-                tool_result_block = {
-                    "type": "bash_code_execution_tool_result",
-                    "tool_use_id": content.tool_call_id,
-                    "content": cast(
-                        BashCodeExecutionToolResultBlockParamContentParam,
-                        content.tool_result,
-                    ),
-                }
-            elif content.tool_name == "text_editor_code_execution":
-                tool_result_block = {
-                    "type": "text_editor_code_execution_tool_result",
-                    "tool_use_id": content.tool_call_id,
-                    "content": cast(
-                        TextEditorCodeExecutionToolResultBlockParamContentParam,
-                        content.tool_result,
-                    ),
-                }
-            elif content.tool_name == "tool_search":
-                tool_result_block = {
-                    "type": "tool_search_tool_result",
-                    "tool_use_id": content.tool_call_id,
-                    "content": cast(
-                        ToolSearchToolResultBlockParamContentParam,
-                        content.tool_result,
-                    ),
-                }
-            elif content.tool_name == "web_fetch":
-                tool_result_block = {
-                    "type": "web_fetch_tool_result",
-                    "tool_use_id": content.tool_call_id,
-                    "content": cast(
-                        WebFetchToolResultBlockParamContentParam,
-                        content.tool_result,
-                    ),
-                }
-            else:
-                tool_result_block = {
-                    "type": "tool_result",
-                    "tool_use_id": content.tool_call_id,
-                    "content": json_dumps(content.tool_result),
-                }
-                external_tool = False
+            tool_result_block, external_tool = _tool_result_block(content)
             if not messages or messages[-1]["role"] != (
                 "assistant" if external_tool else "user"
             ):
@@ -389,83 +473,11 @@ def _convert_content(  # noqa: C901
                     container_id = content.native.container.id
 
             if content.content and content.content.strip():
-                current_index = 0
-                for detail in (
-                    content.native.citation_details
-                    if isinstance(content.native, ContentDetails)
-                    else [CitationDetails(length=len(content.content))]
-                ):
-                    if detail.index > current_index:
-                        # Add text block for any text without citations
-                        messages[-1]["content"].append(  # type: ignore[union-attr]
-                            TextBlockParam(
-                                type="text",
-                                text=content.content[current_index : detail.index],
-                            )
-                        )
-                    messages[-1]["content"].append(  # type: ignore[union-attr]
-                        TextBlockParam(
-                            type="text",
-                            text=content.content[
-                                detail.index : detail.index + detail.length
-                            ],
-                            citations=detail.citations,
-                        )
-                        if detail.citations
-                        else TextBlockParam(
-                            type="text",
-                            text=content.content[
-                                detail.index : detail.index + detail.length
-                            ],
-                        )
-                    )
-                    current_index = detail.index + detail.length
-                if current_index < len(content.content):
-                    # Add text block for any remaining text without citations
-                    messages[-1]["content"].append(  # type: ignore[union-attr]
-                        TextBlockParam(
-                            type="text",
-                            text=content.content[current_index:],
-                        )
-                    )
+                messages[-1]["content"].extend(_text_blocks(content)) # type: ignore[union-attr]
 
             if content.tool_calls:
                 messages[-1]["content"].extend(  # type: ignore[union-attr]
-                    [
-                        ServerToolUseBlockParam(
-                            type="server_tool_use",
-                            id=tool_call.id,
-                            name=cast(
-                                Literal[
-                                    "web_fetch",
-                                    "web_search",
-                                    "code_execution",
-                                    "bash_code_execution",
-                                    "text_editor_code_execution",
-                                    "tool_search_tool_bm25",
-                                ],
-                                tool_call.tool_name,
-                            ),
-                            input=tool_call.tool_args,
-                        )
-                        if tool_call.external
-                        and tool_call.tool_name
-                        in [
-                            "web_fetch",
-                            "web_search",
-                            "code_execution",
-                            "bash_code_execution",
-                            "text_editor_code_execution",
-                            "tool_search_tool_bm25",
-                        ]
-                        else ToolUseBlockParam(
-                            type="tool_use",
-                            id=tool_call.id,
-                            name=tool_call.tool_name,
-                            input=tool_call.tool_args,
-                        )
-                        for tool_call in content.tool_calls
-                    ]
+                    _tool_call_block(tool_call) for tool_call in content.tool_calls
                 )
 
             if not messages[-1]["content"]:
