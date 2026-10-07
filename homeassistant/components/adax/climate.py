@@ -22,7 +22,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import AdaxConfigEntry
-from .const import CONNECTION_TYPE, DOMAIN, LOCAL
+from .const import CONNECTION_TYPE, DOMAIN, ICON_ON, LOCAL
 from .coordinator import AdaxCloudCoordinator, AdaxLocalCoordinator
 
 
@@ -133,7 +133,7 @@ class AdaxDevice(CoordinatorEntity[AdaxCloudCoordinator], ClimateEntity):
         self._attr_target_temperature = room.get("targetTemperature")
         if room["heatingEnabled"]:
             self._attr_hvac_mode = HVACMode.HEAT
-            self._attr_icon = "mdi:radiator"
+            self._attr_icon = ICON_ON
         else:
             self._attr_hvac_mode = HVACMode.OFF
             self._attr_icon = "mdi:radiator-off"
@@ -172,7 +172,7 @@ class LocalAdaxDevice(CoordinatorEntity[AdaxLocalCoordinator], ClimateEntity):
             temperature = self._attr_target_temperature or self._attr_min_temp
             await self._adax_data_handler.set_target_temperature(temperature)
             self._attr_target_temperature = temperature
-            self._attr_icon = "mdi:radiator"
+            self._attr_icon = ICON_ON
         elif hvac_mode == HVACMode.OFF:
             await self._adax_data_handler.set_target_temperature(0)
             self._attr_icon = "mdi:radiator-off"
@@ -213,7 +213,7 @@ class LocalAdaxDevice(CoordinatorEntity[AdaxLocalCoordinator], ClimateEntity):
                     self._attr_target_temperature = self._attr_min_temp
             else:
                 self._attr_hvac_mode = HVACMode.HEAT
-                self._attr_icon = "mdi:radiator"
+                self._attr_icon = ICON_ON
                 self._attr_target_temperature = target_temp
 
     @callback
