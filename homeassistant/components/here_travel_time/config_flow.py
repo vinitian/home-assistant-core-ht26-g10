@@ -83,9 +83,7 @@ def get_user_step_schema(data: Mapping[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(CONF_API_KEY, default=data.get(CONF_API_KEY)): cv.string,
-            vol.Optional(
-                CONF_MODE, default=data.get(CONF_MODE, TRAVEL_MODE_CAR)
-            ): vol.In(TRAVEL_MODES),
+               vol.Optional(CONF_MODE, default=travel_mode): vol.In(TRAVEL_MODES),
         }
     )
 
