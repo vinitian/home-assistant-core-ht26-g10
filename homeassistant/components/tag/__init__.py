@@ -297,7 +297,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     for tag in storage_collection.async_items():
         if _LOGGER.isEnabledFor(logging.DEBUG):
             _LOGGER.debug("Adding tag: %s", tag)
-        entity_id = entity_registry.async_get_entity_id(DOMAIN, DOMAIN, tag[CONF_ID])
         if entity_id := entity_registry.async_get_entity_id(
             DOMAIN, DOMAIN, tag[CONF_ID]
         ):
