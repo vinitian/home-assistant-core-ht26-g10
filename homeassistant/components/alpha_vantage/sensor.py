@@ -73,7 +73,7 @@ def setup_platform(
     hass: HomeAssistant,
     config: ConfigType,
     add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
+    _discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up the Alpha Vantage sensor."""
     api_key: str = config[CONF_API_KEY]
