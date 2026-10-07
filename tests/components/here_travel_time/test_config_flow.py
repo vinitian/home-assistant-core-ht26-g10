@@ -497,3 +497,37 @@ async def test_options_flow_no_time_step(
         CONF_ROUTE_MODE: ROUTE_MODE_FASTEST,
         CONF_TRAFFIC_MODE: True,
     }
+
+
+@pytest.mark.parametrize(
+    "stored_mode",
+    [
+        pytest.param("publicTransportTimeTable", id="legacy"),
+        pytest.param(TRAVEL_MODE_PUBLIC, id="current"),
+    ],
+)
+@pytest.mark.usefixtures("valid_response")
+async def test_reconfigure_public_transport_mode_default(
+    hass: HomeAssistant, stored_mode: str
+) -> None:
+    """Test the untouched reconfigure form is accepted for public transport."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id="0123456789",
+        data={**DEFAULT_CONFIG, CONF_MODE: stored_mode},
+        options=DEFAULT_OPTIONS,
+        version=HERETravelTimeConfigFlow.VERSION,
+        minor_version=HERETravelTimeConfigFlow.MINOR_VERSION,
+    )
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    reconfigure_result = await entry.start_reconfigure_flow(hass)
+    assert reconfigure_result["type"] is FlowResultType.FORM
+    assert reconfigure_result["step_id"] == "user"
+
+    user_step_result = await hass.config_entries.flow.async_configure(
+        reconfigure_result["flow_id"], {}
+    )
+    assert user_step_result["type"] is FlowResultType.MENU
