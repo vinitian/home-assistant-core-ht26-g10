@@ -226,6 +226,7 @@ class ContentDetails:
             detail for detail in self.citation_details if detail.citations
         ]
 
+
 def _tool_result_block(
     content: conversation.ToolResultContent,
 ) -> tuple[ContentBlockParam, bool]:
@@ -249,75 +250,50 @@ def _tool_result_block(
             ),
         }
     elif content.tool_name == "code_execution":
-        external_tool = True
-        if content.tool_name == "web_search":
-            tool_result_block: ContentBlockParam = {
-                "type": "web_search_tool_result",
-                "tool_use_id": content.tool_call_id,
-                "content": cast(
-                    WebSearchToolResultBlockParamContentParam,
-                    content.tool_result["content"]
-                    if "content" in content.tool_result
-                    else {
-                        "type": "web_search_tool_result_error",
-                        "error_code": content.tool_result.get(
-                            "error_code", "unavailable"
-                        ),
-                    },
-                ),
-            }
-        elif content.tool_name == "code_execution":
-            tool_result_block = {
-                "type": "code_execution_tool_result",
-                "tool_use_id": content.tool_call_id,
-                "content": cast(
-                    CodeExecutionToolResultBlockParamContentParam,
-                    content.tool_result,
-                ),
-            }
-        elif content.tool_name == "bash_code_execution":
-            tool_result_block = {
-                "type": "bash_code_execution_tool_result",
-                "tool_use_id": content.tool_call_id,
-                "content": cast(
-                    BashCodeExecutionToolResultBlockParamContentParam,
-                    content.tool_result,
-                ),
-            }
-        elif content.tool_name == "text_editor_code_execution":
-            tool_result_block = {
-                "type": "text_editor_code_execution_tool_result",
-                "tool_use_id": content.tool_call_id,
-                "content": cast(
-                    TextEditorCodeExecutionToolResultBlockParamContentParam,
-                    content.tool_result,
-                ),
-            }
-        elif content.tool_name == "tool_search":
-            tool_result_block = {
-                "type": "tool_search_tool_result",
-                "tool_use_id": content.tool_call_id,
-                "content": cast(
-                    ToolSearchToolResultBlockParamContentParam,
-                    content.tool_result,
-                ),
-            }
-        elif content.tool_name == "web_fetch":
-            tool_result_block = {
-                "type": "web_fetch_tool_result",
-                "tool_use_id": content.tool_call_id,
-                "content": cast(
-                    WebFetchToolResultBlockParamContentParam,
-                    content.tool_result,
-                ),
-            }
-        else:
-            tool_result_block = {
-                "type": "tool_result",
-                "tool_use_id": content.tool_call_id,
-                "content": json_dumps(content.tool_result),
-            }
-            external_tool = False
+        tool_result_block = {
+            "type": "code_execution_tool_result",
+            "tool_use_id": content.tool_call_id,
+            "content": cast(
+                CodeExecutionToolResultBlockParamContentParam,
+                content.tool_result,
+            ),
+        }
+    elif content.tool_name == "bash_code_execution":
+        tool_result_block = {
+            "type": "bash_code_execution_tool_result",
+            "tool_use_id": content.tool_call_id,
+            "content": cast(
+                BashCodeExecutionToolResultBlockParamContentParam,
+                content.tool_result,
+            ),
+        }
+    elif content.tool_name == "text_editor_code_execution":
+        tool_result_block = {
+            "type": "text_editor_code_execution_tool_result",
+            "tool_use_id": content.tool_call_id,
+            "content": cast(
+                TextEditorCodeExecutionToolResultBlockParamContentParam,
+                content.tool_result,
+            ),
+        }
+    elif content.tool_name == "tool_search":
+        tool_result_block = {
+            "type": "tool_search_tool_result",
+            "tool_use_id": content.tool_call_id,
+            "content": cast(
+                ToolSearchToolResultBlockParamContentParam,
+                content.tool_result,
+            ),
+        }
+    elif content.tool_name == "web_fetch":
+        tool_result_block = {
+            "type": "web_fetch_tool_result",
+            "tool_use_id": content.tool_call_id,
+            "content": cast(
+                WebFetchToolResultBlockParamContentParam,
+                content.tool_result,
+            ),
+        }
     else:
         tool_result_block = {
             "type": "tool_result",
@@ -325,6 +301,7 @@ def _tool_result_block(
             "content": json_dumps(content.tool_result),
         }
         external_tool = False
+
     return tool_result_block, external_tool
 
 def _text_blocks(content: conversation.AssistantContent) -> list[TextBlockParam]:
@@ -354,6 +331,7 @@ def _text_blocks(content: conversation.AssistantContent) -> list[TextBlockParam]
         blocks.append(TextBlockParam(type="text", text=content.content[current_index:]))
     return blocks
 
+
 _EXTERNAL_TOOLS = (
     "web_fetch",
     "web_search",
@@ -362,6 +340,7 @@ _EXTERNAL_TOOLS = (
     "text_editor_code_execution",
     "tool_search_tool_bm25",
 )
+
 
 def _tool_call_block(tool_call) -> ContentBlockParam:
     """Server-side tools use a different block type than regular tools."""
@@ -378,6 +357,7 @@ def _tool_call_block(tool_call) -> ContentBlockParam:
         name=tool_call.tool_name,
         input=tool_call.tool_args,
     )
+
 
 def _convert_content(  # noqa: C901
     chat_content: Iterable[conversation.Content],
@@ -473,7 +453,7 @@ def _convert_content(  # noqa: C901
                     container_id = content.native.container.id
 
             if content.content and content.content.strip():
-                messages[-1]["content"].extend(_text_blocks(content)) # type: ignore[union-attr]
+                messages[-1]["content"].extend(_text_blocks(content))  # type: ignore[union-attr]
 
             if content.tool_calls:
                 messages[-1]["content"].extend(  # type: ignore[union-attr]
