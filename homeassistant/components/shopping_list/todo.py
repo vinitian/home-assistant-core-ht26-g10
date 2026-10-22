@@ -72,7 +72,10 @@ class ShoppingTodoListEntity(TodoListEntity):
 
     @override
     async def async_move_todo_item(
-        self, uid: str, previous_uid: str | None = None
+        self,
+        uid: str,
+        previous_uid: str | None = None,
+        parent_uid: str | None = None,
     ) -> None:
         """Re-order an item to the To-do list."""
 

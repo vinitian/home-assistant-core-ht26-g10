@@ -113,7 +113,10 @@ class BaseHabiticaListEntity(HabiticaBase, TodoListEntity):
 
     @override
     async def async_move_todo_item(
-        self, uid: str, previous_uid: str | None = None
+        self,
+        uid: str,
+        previous_uid: str | None = None,
+        parent_uid: str | None = None,
     ) -> None:
         """Move an item in the To-do list."""
         if TYPE_CHECKING:

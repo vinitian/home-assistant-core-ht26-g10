@@ -3,7 +3,7 @@
 from collections.abc import Callable, Coroutine
 from datetime import datetime
 import textwrap
-from typing import Any
+from typing import Any, Protocol
 
 from freezegun import freeze_time
 import pytest
@@ -14,6 +14,7 @@ from homeassistant.components.todo import (
     ATTR_DUE_DATE,
     ATTR_DUE_DATETIME,
     ATTR_ITEM,
+    ATTR_PARENT,
     ATTR_RENAME,
     ATTR_STATUS,
     DOMAIN as TODO_DOMAIN,
@@ -21,6 +22,7 @@ from homeassistant.components.todo import (
 )
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.util import dt as dt_util
 
 from .conftest import TEST_ENTITY
@@ -28,7 +30,15 @@ from .conftest import TEST_ENTITY
 from tests.typing import WebSocketGenerator
 
 type WsGetItemsType = Callable[[], Coroutine[Any, Any, list[dict[str, str]]]]
-type WsMoveItemType = Callable[[str, str | None], Coroutine[Any, Any, dict[str, Any]]]
+
+
+class WsMoveItemType(Protocol):
+    """Type for moving a todo item over the WebSocket API."""
+
+    def __call__(
+        self, uid: str, previous_uid: str | None, parent_uid: str | None = None
+    ) -> Coroutine[Any, Any, dict[str, Any]]:
+        """Move an item over the WebSocket API."""
 
 
 @pytest.fixture
@@ -55,7 +65,9 @@ async def ws_get_items(hass_ws_client: WebSocketGenerator) -> WsGetItemsType:
 async def ws_move_item(hass_ws_client: WebSocketGenerator) -> WsMoveItemType:
     """Fixture to move an item in the todo list."""
 
-    async def move(uid: str, previous_uid: str | None) -> dict[str, Any]:
+    async def move(
+        uid: str, previous_uid: str | None, parent_uid: str | None = None
+    ) -> dict[str, Any]:
         # Fetch items using To-do platform
         client = await hass_ws_client()
         data = {
@@ -65,10 +77,51 @@ async def ws_move_item(hass_ws_client: WebSocketGenerator) -> WsMoveItemType:
         }
         if previous_uid is not None:
             data["previous_uid"] = previous_uid
+        if parent_uid is not None:
+            data["parent_uid"] = parent_uid
         await client.send_json_auto_id(data)
         return await client.receive_json()
 
     return move
+
+
+async def _create_task_hierarchy(
+    hass: HomeAssistant,
+    ws_get_items: WsGetItemsType,
+    ws_move_item: WsMoveItemType,
+    child_names: tuple[str, ...],
+) -> tuple[dict[str, str], list[dict[str, str]]]:
+    """Create a parent task and attach its subtasks."""
+    for item_name in ("parent", *child_names):
+        await hass.services.async_call(
+            TODO_DOMAIN,
+            TodoServices.ADD_ITEM,
+            {ATTR_ITEM: item_name},
+            target={ATTR_ENTITY_ID: TEST_ENTITY},
+            blocking=True,
+        )
+
+    items_by_summary = {item["summary"]: item for item in await ws_get_items()}
+    parent = items_by_summary["parent"]
+    children = [items_by_summary[name] for name in child_names]
+    for child in children:
+        response = await ws_move_item(child["uid"], None, parent["uid"])
+        assert response.get("success")
+
+    return parent, children
+
+
+async def _update_item(
+    hass: HomeAssistant, uid: str, item_data: dict[str, Any]
+) -> None:
+    """Update a todo item."""
+    await hass.services.async_call(
+        TODO_DOMAIN,
+        TodoServices.UPDATE_ITEM,
+        {ATTR_ITEM: uid, **item_data},
+        target={ATTR_ENTITY_ID: TEST_ENTITY},
+        blocking=True,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -298,13 +351,7 @@ async def test_update_item(
     # Update item
     update_time = datetime(2023, 11, 18, 8, 0, 0, tzinfo=dt_util.UTC)
     with freeze_time(update_time):
-        await hass.services.async_call(
-            TODO_DOMAIN,
-            TodoServices.UPDATE_ITEM,
-            {ATTR_ITEM: item["uid"], **item_data},
-            target={ATTR_ENTITY_ID: TEST_ENTITY},
-            blocking=True,
-        )
+        await _update_item(hass, item["uid"], item_data)
 
     # Verify item is updated
     items = await ws_get_items()
@@ -424,13 +471,7 @@ async def test_update_existing_field(
     # Perform update
     update_time = datetime(2023, 11, 18, 8, 0, 0, tzinfo=dt_util.UTC)
     with freeze_time(update_time):
-        await hass.services.async_call(
-            TODO_DOMAIN,
-            TodoServices.UPDATE_ITEM,
-            {ATTR_ITEM: item["uid"], **item_data},
-            target={ATTR_ENTITY_ID: TEST_ENTITY},
-            blocking=True,
-        )
+        await _update_item(hass, item["uid"], item_data)
 
     # Verify item is updated
     items = await ws_get_items()
@@ -470,13 +511,7 @@ async def test_rename(
     assert state.state == "1"
 
     # Rename item
-    await hass.services.async_call(
-        TODO_DOMAIN,
-        TodoServices.UPDATE_ITEM,
-        {ATTR_ITEM: item["uid"], ATTR_RENAME: "water"},
-        target={ATTR_ENTITY_ID: TEST_ENTITY},
-        blocking=True,
-    )
+    await _update_item(hass, item["uid"], {ATTR_RENAME: "water"})
 
     # Verify item has been renamed
     items = await ws_get_items()
@@ -769,13 +804,7 @@ async def test_susbcribe(
     assert uid
 
     # Rename item
-    await hass.services.async_call(
-        TODO_DOMAIN,
-        TodoServices.UPDATE_ITEM,
-        {ATTR_ITEM: uid, ATTR_RENAME: "milk"},
-        target={ATTR_ENTITY_ID: TEST_ENTITY},
-        blocking=True,
-    )
+    await _update_item(hass, uid, {ATTR_RENAME: "milk"})
 
     # Verify update is published
     msg = await client.receive_json()
@@ -821,13 +850,7 @@ async def test_reset_item_via_update(
     # Complete item
     update_time = datetime(2023, 11, 18, 8, 0, 0, tzinfo=dt_util.UTC)
     with freeze_time(update_time):
-        await hass.services.async_call(
-            TODO_DOMAIN,
-            TodoServices.UPDATE_ITEM,
-            {ATTR_ITEM: item_uid, ATTR_STATUS: "completed"},
-            target={ATTR_ENTITY_ID: TEST_ENTITY},
-            blocking=True,
-        )
+        await _update_item(hass, item_uid, {ATTR_STATUS: "completed"})
 
     # Verify item is completed
     items = await ws_get_items()
@@ -849,13 +872,7 @@ async def test_reset_item_via_update(
     # Reset item
     update_time = datetime(2023, 11, 18, 8, 1, 0, tzinfo=dt_util.UTC)
     with freeze_time(update_time):
-        await hass.services.async_call(
-            TODO_DOMAIN,
-            TodoServices.UPDATE_ITEM,
-            {ATTR_ITEM: item_uid, ATTR_STATUS: "needs_action"},
-            target={ATTR_ENTITY_ID: TEST_ENTITY},
-            blocking=True,
-        )
+        await _update_item(hass, item_uid, {ATTR_STATUS: "needs_action"})
 
     # Verify item is not completed
     items = await ws_get_items()
@@ -873,3 +890,144 @@ async def test_reset_item_via_update(
     state = hass.states.get(TEST_ENTITY)
     assert state
     assert state.state == "1"
+
+
+async def test_parent_completion_propagates_to_subtasks(
+    hass: HomeAssistant,
+    setup_integration: None,
+    ws_get_items: WsGetItemsType,
+    ws_move_item: WsMoveItemType,
+) -> None:
+    """If the parent task is checked, all subtasks are automatically checked."""
+    parent, _ = await _create_task_hierarchy(
+        hass, ws_get_items, ws_move_item, ("child 1", "child 2")
+    )
+    await _update_item(hass, parent["uid"], {ATTR_STATUS: "completed"})
+
+    items = await ws_get_items()
+    assert all(item[ATTR_STATUS] == "completed" for item in items)
+
+
+async def test_all_subtasks_checked_does_not_auto_complete_parent(
+    hass: HomeAssistant,
+    setup_integration: None,
+    ws_get_items: WsGetItemsType,
+    ws_move_item: WsMoveItemType,
+) -> None:
+    """When all subtasks are checked, parent remains unchecked unless explicitly checked."""
+    parent, children = await _create_task_hierarchy(
+        hass, ws_get_items, ws_move_item, ("child 1", "child 2")
+    )
+    for child in children:
+        await _update_item(hass, child["uid"], {ATTR_STATUS: "completed"})
+
+    items = await ws_get_items()
+    items_by_summary = {item["summary"]: item for item in items}
+    assert items_by_summary["parent"][ATTR_STATUS] == "needs_action"
+    assert all(
+        items_by_summary[child["summary"]][ATTR_STATUS] == "completed"
+        for child in children
+    )
+
+    await _update_item(hass, parent["uid"], {ATTR_STATUS: "completed"})
+    items = await ws_get_items()
+    assert all(item[ATTR_STATUS] == "completed" for item in items)
+
+
+async def test_subtask_uncheck_unchecks_parent(
+    hass: HomeAssistant,
+    setup_integration: None,
+    ws_get_items: WsGetItemsType,
+    ws_move_item: WsMoveItemType,
+) -> None:
+    """If parent & subtasks are checked, unchecking one subtask unchecks the parent."""
+    parent, children = await _create_task_hierarchy(
+        hass, ws_get_items, ws_move_item, ("child 1", "child 2")
+    )
+    await _update_item(hass, parent["uid"], {ATTR_STATUS: "completed"})
+
+    items = await ws_get_items()
+    assert all(item[ATTR_STATUS] == "completed" for item in items)
+
+    await _update_item(hass, children[0]["uid"], {ATTR_STATUS: "needs_action"})
+
+    items = await ws_get_items()
+    items_by_summary = {item["summary"]: item for item in items}
+    assert items_by_summary["parent"][ATTR_STATUS] == "needs_action"
+    assert items_by_summary["child 1"][ATTR_STATUS] == "needs_action"
+    assert items_by_summary["child 2"][ATTR_STATUS] == "completed"
+
+
+@pytest.mark.parametrize(
+    ("due_attribute", "parent_due", "child_due"),
+    [
+        (
+            ATTR_DUE_DATE,
+            "2023-11-20",
+            "2023-11-25",
+        ),
+        (
+            ATTR_DUE_DATETIME,
+            "2023-11-20T12:00:00-06:00",
+            "2023-11-25T12:00:00-06:00",
+        ),
+    ],
+    ids=["date", "datetime"],
+)
+async def test_task_due_date_hierarchy(
+    hass: HomeAssistant,
+    setup_integration: None,
+    ws_get_items: WsGetItemsType,
+    ws_move_item: WsMoveItemType,
+    due_attribute: str,
+    parent_due: str,
+    child_due: str,
+) -> None:
+    """Test due date constraints between parent and child tasks."""
+    parent, (child,) = await _create_task_hierarchy(
+        hass, ws_get_items, ws_move_item, ("child",)
+    )
+    await _update_item(hass, parent["uid"], {due_attribute: parent_due})
+
+    with pytest.raises(
+        ServiceValidationError, match="A subtask cannot be due after its parent task"
+    ):
+        await _update_item(hass, child["uid"], {due_attribute: child_due})
+
+    await _update_item(hass, parent["uid"], {due_attribute: None})
+    await _update_item(hass, child["uid"], {due_attribute: child_due})
+
+    with pytest.raises(
+        ServiceValidationError,
+        match="A parent task cannot be due before its subtasks",
+    ):
+        await _update_item(hass, parent["uid"], {due_attribute: parent_due})
+
+    # Moving a task with a later due date under a parent clears its due date.
+    await hass.services.async_call(
+        TODO_DOMAIN,
+        TodoServices.ADD_ITEM,
+        {ATTR_ITEM: "earlier parent", due_attribute: parent_due},
+        target={ATTR_ENTITY_ID: TEST_ENTITY},
+        blocking=True,
+    )
+    await hass.services.async_call(
+        TODO_DOMAIN,
+        TodoServices.ADD_ITEM,
+        {ATTR_ITEM: "later child", due_attribute: child_due},
+        target={ATTR_ENTITY_ID: TEST_ENTITY},
+        blocking=True,
+    )
+    items = await ws_get_items()
+    earlier_parent = next(item for item in items if item["summary"] == "earlier parent")
+    later_child = next(item for item in items if item["summary"] == "later child")
+
+    response = await ws_move_item(later_child["uid"], None, earlier_parent["uid"])
+    assert response.get("success")
+
+    items = await ws_get_items()
+    items_by_summary = {item["summary"]: item for item in items}
+    assert items_by_summary["child"][ATTR_PARENT] == parent["uid"]
+    assert items_by_summary["child"]["due"] == child_due
+    assert items_by_summary["later child"][ATTR_PARENT] == earlier_parent["uid"]
+    assert "due" not in items_by_summary["later child"]

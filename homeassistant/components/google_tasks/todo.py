@@ -148,7 +148,10 @@ class GoogleTaskTodoListEntity(
 
     @override
     async def async_move_todo_item(
-        self, uid: str, previous_uid: str | None = None
+        self,
+        uid: str,
+        previous_uid: str | None = None,
+        parent_uid: str | None = None,
     ) -> None:
         """Re-order a To-do item."""
         await self.coordinator.api.move(self._task_list_id, uid, previous=previous_uid)

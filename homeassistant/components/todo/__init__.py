@@ -4,6 +4,7 @@ from collections.abc import Callable, Iterable
 import copy
 import dataclasses
 import datetime
+import inspect
 import logging
 from typing import Any, final, override
 
@@ -34,6 +35,7 @@ from .const import (
     ATTR_DUE_DATE,
     ATTR_DUE_DATETIME,
     ATTR_ITEM,
+    ATTR_PARENT as ATTR_PARENT,
     ATTR_RENAME,
     ATTR_STATUS,
     DATA_COMPONENT,
@@ -228,6 +230,9 @@ class TodoItem:
     completed: datetime.datetime | None = None
     """The date and time that a to-do item was marked completed."""
 
+    parent_uid: str | None = None
+    """The parent To-do item of this To-do item."""
+
 
 _TODO_ITEM_FIELD_NAMES: tuple[str, ...] = tuple(
     field.name for field in dataclasses.fields(TodoItem)
@@ -283,7 +288,7 @@ class TodoListEntity(Entity, cached_properties=CACHED_PROPERTIES_WITH_ATTR_):
         raise NotImplementedError
 
     async def async_move_todo_item(
-        self, uid: str, previous_uid: str | None = None
+        self, uid: str, previous_uid: str | None = None, parent_uid: str | None = None
     ) -> None:
         """Move an item in the To-do list.
 
@@ -424,6 +429,7 @@ async def websocket_handle_todo_item_list(
         vol.Required("entity_id"): cv.entity_id,
         vol.Required("uid"): cv.string,
         vol.Optional("previous_uid"): cv.string,
+        vol.Optional("parent_uid"): cv.string,
     }
 )
 @websocket_api.async_response
@@ -448,9 +454,18 @@ async def websocket_handle_todo_item_move(
         )
         return
     try:
-        await entity.async_move_todo_item(
-            uid=msg["uid"], previous_uid=msg.get("previous_uid")
-        )
+        move_args = {
+            "uid": msg["uid"],
+            "previous_uid": msg.get("previous_uid"),
+        }
+
+        # Only include parent_uid if the message has it and the entity method supports it
+        if "parent_uid" in msg and msg["parent_uid"] is not None:
+            sig = inspect.signature(entity.async_move_todo_item)
+            if "parent_uid" in sig.parameters:
+                move_args["parent_uid"] = msg["parent_uid"]
+
+        await entity.async_move_todo_item(**move_args)
     except HomeAssistantError as ex:
         connection.send_error(msg["id"], "failed", str(ex))
     else:

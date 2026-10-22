@@ -1093,6 +1093,7 @@ async def test_subscribe(
                 "due": None,
                 "description": None,
                 "completed": None,
+                "parent_uid": None,
             },
             {
                 "summary": "Item #2",
@@ -1101,6 +1102,7 @@ async def test_subscribe(
                 "due": None,
                 "description": None,
                 "completed": f"2026-03-27T11:00:00{TEST_OFFSET}",
+                "parent_uid": None,
             },
         ]
     }
@@ -1121,6 +1123,7 @@ async def test_subscribe(
                 "due": None,
                 "description": None,
                 "completed": None,
+                "parent_uid": None,
             },
             {
                 "summary": "Item #2",
@@ -1129,6 +1132,7 @@ async def test_subscribe(
                 "due": None,
                 "description": None,
                 "completed": f"2026-03-27T11:00:00{TEST_OFFSET}",
+                "parent_uid": None,
             },
             {
                 "summary": "Item #3",
@@ -1137,6 +1141,7 @@ async def test_subscribe(
                 "due": None,
                 "description": None,
                 "completed": None,
+                "parent_uid": None,
             },
         ]
     }

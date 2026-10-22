@@ -18,6 +18,7 @@ ATTR_DUE_DATE = "due_date"
 ATTR_DUE_DATETIME = "due_datetime"
 ATTR_DESCRIPTION = "description"
 ATTR_ITEM = "item"
+ATTR_PARENT = "parent_uid"
 ATTR_RENAME = "rename"
 ATTR_STATUS = "status"
 

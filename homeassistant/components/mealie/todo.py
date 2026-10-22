@@ -225,7 +225,10 @@ class MealieShoppingListTodoListEntity(MealieEntity, TodoListEntity):
 
     @override
     async def async_move_todo_item(
-        self, uid: str, previous_uid: str | None = None
+        self,
+        uid: str,
+        previous_uid: str | None = None,
+        parent_uid: str | None = None,
     ) -> None:
         """Re-order an item on the list."""
         if uid == previous_uid:
